@@ -75,6 +75,7 @@ func Test_ValidateHTMLString(t *testing.T) {
 		isValid        bool
 		expectedErrors []interface{}
 	}{
+		{"Empty HTML", "", true, nil},
 		{"Single Tag", "<a></a>", true, nil},
 		{"Self Closing Tag", "<a>", true, nil},
 		{"Nested Tags", "<b><a></a></b>", true, nil},
@@ -126,6 +127,16 @@ func Test_ValidateHTMLString(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_Stop_On_Error(t *testing.T) {
+	v.StopAfterFirstError = true
+	defer func() {
+		v.StopAfterFirstError = false
+	}()
+
+	errors := v.ValidateHtmlString("<kkk></a>")
+	assert.Len(t, errors, 1)
 }
 
 func Test_Errors_Join(t *testing.T) {

@@ -46,8 +46,14 @@ func main() {
 		Name:  "a",
 		Attrs: []htmlcheck.Attribute{
 			{Name: "id"},
-			{Name: "href", Value: &htmlcheck.AttributeValue{Regex: "^(http(s|))://.*"}}, // valid regex for href attribute value
-			{Name: "target", Value: &htmlcheck.AttributeValue{List: []string{"_target", "_blank"}}}, // valid values for target attribute value
+			{Name: "href", Value: &htmlcheck.AttributeValue{
+				// valid regex for href attribute value
+				Regex: "^(http(s|))://.*"
+			}},
+			{Name: "target", Value: &htmlcheck.AttributeValue{
+				// valid values for target attribute value
+				List: []string{"_target", "_blank"}
+			}},
 		},
 		IsSelfClosing: false,
 	})
