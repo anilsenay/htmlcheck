@@ -1,6 +1,8 @@
 package htmlcheck
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -13,8 +15,7 @@ var v Validator = Validator{}
 
 func TestMain(m *testing.M) {
 	v.AddGroup(&TagGroup{
-		Name: "example",
-		// Attrs: []string{"test1", "test2"},
+		Name:  "example",
 		Attrs: []Attribute{{Name: "test1"}, {Name: "test2"}},
 	})
 	v.AddValidTag(ValidTag{
@@ -46,119 +47,119 @@ func TestMain(m *testing.M) {
 	})
 	v.AddValidTag(ValidTag{
 		Name:  "img",
-		Attrs: []Attribute{{Name: "src", Value: &AttributeValue{StartsWith: "http"}}},
+		Attrs: []Attribute{{Name: "src", Value: &AttributeValue{Regex: "^(http(s|))://.*"}}},
+	})
+	v.AddValidTag(ValidTag{
+		Name:      "testregex",
+		AttrRegex: "^(test).*",
+	})
+	v.AddValidTag(ValidTag{
+		Name:           "startswith",
+		AttrStartsWith: "test-",
+	})
+	v.AddValidTag(ValidTag{
+		Name:  "q",
+		Attrs: []Attribute{{Name: "cite", Value: &AttributeValue{StartsWith: "http"}}},
+	})
+	v.AddValidTag(ValidTag{
+		Name:  "span",
+		Attrs: []Attribute{{Name: "class", Value: &AttributeValue{List: []string{"text-sm", "text-md", "text-lg"}}}},
 	})
 	os.Exit(m.Run())
 }
 
-func Test_SingleTag(t *testing.T) {
-	errors := v.ValidateHtmlString("<a></a>")
-	assert.Len(t, errors, 0)
-}
+func Test_ValidateHTMLString(t *testing.T) {
+	testCases := []struct {
+		desc           string
+		rawHTML        string
+		isValid        bool
+		expectedErrors []interface{}
+	}{
+		{"Single Tag", "<a></a>", true, nil},
+		{"Self Closing Tag", "<a>", true, nil},
+		{"Nested Tags", "<b><a></a></b>", true, nil},
+		{"Nested Tags + Self Closing", "<b><a></b>", true, nil},
+		{"Single Attribute", "<a href='test'>", true, nil},
+		{"Global Attribute", "<a data-test='test'>", true, nil}, // `data-` is added as global attribute
+		{"Single Attribute - Starts With (From Global)", "<style data-jiis='cc' id='gstyle'></style>", true, nil},
+		{"Single Attribute - Starts With", "<startswith test-data='test'></startswith>", true, nil},
+		{"Single Attribute - Regex", "<testregex test-attribute='test'></testregex>", true, nil},
+		{"Attributes Without Value", "<a test1 test2></a>", true, nil},
+		{"Attribute Value - List", "<span class='text-sm'></span>", true, nil},
+		{"Attribute Value - StartsWith", "<q cite='http://test.com'></q>", true, nil},
+		{"Attribute Value - Regex", "<img src='http://test.com'></img>", true, nil},
+		{"Attribute Value - Regex", "<img src='https://test.com'></img>", true, nil},
+		{"Groups", "<a test1=4 test2=5></a>", true, nil},
 
-func Test_SelfClosingTag(t *testing.T) {
-	errors := v.ValidateHtmlString("<a>")
-	assert.Len(t, errors, 0)
-}
+		{"Unclosed Tag", "<b>text", false, []interface{}{&ErrInvNotProperlyClosed{}}},
+		{"Closed Before Opened", "</b><b>", false, []interface{}{&ErrInvClosedBeforeOpened{}}},
+		{"Unknown Tag", "<asd></asd>", false, []interface{}{&ErrInvTag{}}},
+		{"Unknown Tag - Single", "<asd>", false, []interface{}{&ErrInvTag{}}},
+		{"Wrongly Nested Tags", "<b><c></b></c>", false, nil},
+		{"Unknown Attribute", "<a hrefff='test'>", false, []interface{}{&ErrInvAttribute{}}},
+		{"Unknown Attribute - Regex", "<testregex attr-test='test'></testregex>", false, []interface{}{&ErrInvAttribute{}}},
+		{"Unknown Attribute - StartsWith", "<startswith attr-test='test'></startswith>", false, []interface{}{&ErrInvAttribute{}}},
+		{"Unknown Attribute + Nested", "<b kkk='kkk'><a></a></b>", false, []interface{}{&ErrInvAttribute{}}},
+		{"Unknown Attribute Value - List", "<span class='someclass'></span>", false, []interface{}{&ErrInvAttributeValue{}}},
+		{"Invalid Attribute Value - Regex", "<img src='ftp://test.com'></img>", false, []interface{}{&ErrInvAttributeValue{}}},
+		{"Duplicate Attribute", "<a href='test' href='test2'>", false, []interface{}{&ErrInvDuplicatedAttribute{}}},
+	}
+	for _, tC := range testCases {
+		t.Run(tC.desc, func(t *testing.T) {
+			_errors := v.ValidateHtmlString(tC.rawHTML)
+			if !tC.isValid {
+				assert.NotEmpty(t, _errors)
+			} else {
+				assert.Len(t, _errors, 0)
+			}
 
-func Test_SingleAttr(t *testing.T) {
-	errors := v.ValidateHtmlString("<a href='test'>")
-	assert.Len(t, errors, 0)
-}
-
-func Test_UnknownAttr(t *testing.T) {
-	errors := v.ValidateHtmlString("<a hrefff='test'>")
-	assert.NotEmpty(t, errors)
-}
-
-func Test_DuplicatedAttr(t *testing.T) {
-	errors := v.ValidateHtmlString("<a href='test' href='test2'>")
-	assert.NotEmpty(t, errors)
-}
-
-func Test_SingleUnknownTag(t *testing.T) {
-	errors := v.ValidateHtmlString("<art>")
-	assert.NotEmpty(t, errors)
-}
-
-func Test_AttributeValue(t *testing.T) {
-	errors := v.ValidateHtmlString("<img src='http://test.com'></img>")
-	assert.Len(t, errors, 0)
-}
-
-func Test_InvalidAttributeValue(t *testing.T) {
-	errors := v.ValidateHtmlString("<img src='ftp://test.com'></img>")
-	assert.NotEmpty(t, errors)
-}
-
-func Test_UnclosedTag(t *testing.T) {
-	errors := v.ValidateHtmlString("<b>df")
-	assert.NotEmpty(t, errors)
-}
-
-func Test_NestedTags(t *testing.T) {
-	errors := v.ValidateHtmlString("<b><a></a></b>")
-	assert.Len(t, errors, 0)
-}
-
-func Test_Groups(t *testing.T) {
-	errors := v.ValidateHtmlString("<a test1=4 test2=5></a>")
-	assert.Len(t, errors, 0)
-}
-
-func Test_WronglyNestedTags(t *testing.T) {
-	errors := v.ValidateHtmlString("<b><c></b></c>")
-	assert.NotEmpty(t, errors)
-}
-
-func Test_SwapedStartClosingTags(t *testing.T) {
-	errors := v.ValidateHtmlString("</b><b>")
-	assert.NotEmpty(t, errors)
-	assert.ErrorAs(t, errors[0], &ErrInvClosedBeforeOpened{})
-}
-
-func Test_NextedTagsWithSelfClosing(t *testing.T) {
-	errors := v.ValidateHtmlString("<b><a></b>")
-	assert.Len(t, errors, 0)
-}
-
-func Test_AttributesWithoutValue(t *testing.T) {
-	errors := v.ValidateHtmlString("<a test1 test2></a>")
-	assert.Len(t, errors, 0)
-}
-
-func Test_NextedTagsWithUnkonwAttribute1(t *testing.T) {
-	errors := v.ValidateHtmlString("<b kkk='kkk'><a></b>")
-	if len(errors) != 1 {
-		t.Fatal("should raise invalid attribute error")
+			if len(tC.expectedErrors) > 0 {
+				for _, expectedError := range tC.expectedErrors {
+					found := false
+					for _, err := range _errors {
+						if errors.As(err, expectedError) {
+							found = true
+						}
+					}
+					assert.True(t, found)
+				}
+			}
+		})
 	}
 }
 
-func Test_NextedTagsWithUnkonwAttribute2(t *testing.T) {
-	errors := v.ValidateHtmlString("<b><a kkk='kkk'></b>")
-	if len(errors) != 1 {
-		t.Fatal("should raise invalid attribute error")
-	}
-}
-
-func Test_AttrStartsWith(t *testing.T) {
-	errors := v.ValidateHtmlString("<style data-jiis='cc' id='gstyle'></style>")
-	assert.Len(t, errors, 0)
+func Test_Errors_Join(t *testing.T) {
+	err := v.ValidateHtmlString("<kkk></a>").Join()
+	assert.Error(t, err)
+	assert.ErrorAs(t, err, &ErrInvTag{})
+	assert.ErrorAs(t, err, &ErrInvClosedBeforeOpened{})
 }
 
 func Test_Callback(t *testing.T) {
+	generalError := errors.New("validation error")
 	triggerd := false
 	v.RegisterCallback(func(tagName string, attributeName string, value string, reason ErrorReason) error {
 		triggerd = true
+		return generalError
+	})
+
+	errors := v.ValidateHtmlString("<kkk>")
+	assert.True(t, triggerd)
+	assert.ErrorIs(t, errors[0], generalError)
+}
+
+func Test_Callback_DisableErrors(t *testing.T) {
+	v.RegisterCallback(func(tagName string, attributeName string, value string, reason ErrorReason) error {
+		if reason == InvTag || reason == InvAttribute {
+			return fmt.Errorf("validation error: tag '%s', attr: %s", tagName, attributeName)
+		}
 		return nil
 	})
 
-	errors := v.ValidateHtmlString("<kk>")
-	if !triggerd {
-		t.Fatal("should trigger callback")
-	}
-
-	assert.Len(t, errors, 0)
+	errors := v.ValidateHtmlString("<kkk>")
+	assert.NotEmpty(t, errors)
+	errors = v.ValidateHtmlString("<a>")
+	assert.Empty(t, errors)
 }
 
 func BenchmarkValidateHtmlString(b *testing.B) {

@@ -1,6 +1,19 @@
 package htmlcheck
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
+
+type ValidationErrorList []error
+
+func (el ValidationErrorList) Join() error {
+	var err error
+	for _, e := range el {
+		err = errors.Join(err, e)
+	}
+	return err
+}
 
 type ValidationError interface {
 	Error() string
@@ -48,14 +61,18 @@ func (e ErrInvNotProperlyClosed) Error() string {
 	return fmt.Sprintf("tag '%s' is never closed", e.TagName)
 }
 
+type ErrInvAttributeValue struct{ ErrorDetails }
+
+func (e ErrInvAttributeValue) Error() string {
+	return fmt.Sprintf("invalid attribute value '%s' in attribute '%s' in tag '%s'", e.AttributeValue, e.AttributeName, e.TagName)
+}
+
 type ErrInvEOF struct{ ErrorDetails }
 
 func (e ErrInvEOF) Error() string {
 	return fmt.Sprintln("error occurred during tokenization")
 }
 
-type ErrInvAttributeValue struct{ ErrorDetails }
-
-func (e ErrInvAttributeValue) Error() string {
-	return fmt.Sprintf("invalid attribute value '%s' in attribute '%s' in tag '%s'", e.AttributeValue, e.AttributeName, e.TagName)
+func isEOF(err error) bool {
+	return errors.As(err, &ErrInvEOF{})
 }
